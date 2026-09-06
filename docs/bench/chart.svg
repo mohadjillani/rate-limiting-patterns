@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="340" viewBox="0 0 700 340" role="img" aria-label="Boundary overshoot and memory per client by strategy">
+  <style>
+    text { font: 13px system-ui, sans-serif; fill: #111; }
+    .title { font-weight: 600; font-size: 15px; }
+    .note { fill: #555; font-size: 12px; }
+    @media (prefers-color-scheme: dark) { text { fill: #eee; } .note { fill: #aaa; } }
+  </style>
+  <text x="0" y="20" class="title">Allowance let through across a window boundary</text>
+  <text x="0" y="38" class="note">1.0× is exact. Higher is worse.</text>
+  <text x="0" y="64" class="label">fixed-window</text>
+  <rect x="130" y="50 " width="460" height="18" fill="#c2410c" rx="2" />
+  <text x="596" y="64" class="value">2×</text>
+  <text x="0" y="98" class="label">sliding-log</text>
+  <rect x="130" y="84 " width="230" height="18" fill="#c2410c" rx="2" />
+  <text x="366" y="98" class="value">1×</text>
+  <text x="0" y="132" class="label">token-bucket</text>
+  <rect x="130" y="118 " width="265" height="18" fill="#c2410c" rx="2" />
+  <text x="401" y="132" class="value">1.15×</text>
+  <text x="0" y="190" class="title">Redis memory per active client</text>
+  <text x="0" y="208" class="note">Sliding log grows with the request rate, not the client count.</text>
+  <text x="0" y="234" class="label">fixed-window</text>
+  <rect x="130" y="220 " width="13" height="18" fill="#1d4ed8" rx="2" />
+  <text x="149" y="234" class="value">60 B</text>
+  <text x="0" y="268" class="label">sliding-log</text>
+  <rect x="130" y="254 " width="460" height="18" fill="#1d4ed8" rx="2" />
+  <text x="596" y="268" class="value">2052 B</text>
+  <text x="0" y="302" class="label">token-bucket</text>
+  <rect x="130" y="288 " width="21" height="18" fill="#1d4ed8" rx="2" />
+  <text x="157" y="302" class="value">93 B</text>
+</svg>
