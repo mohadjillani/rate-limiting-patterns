@@ -1,0 +1,25 @@
+services:
+  redis:
+    image: redis:8-alpine
+    ports: ['6379:6379']
+    # No persistence: the whole dataset is rate-limit counters with TTLs, and
+    # losing them on restart means a brief over-allowance rather than data loss.
+    command: redis-server --save '' --appendonly no
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  demo:
+    build: .
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports: ['3000:3000']
+    environment:
+      REDIS_URL: redis://redis:6379
+      STRATEGY: ${STRATEGY:-token-bucket}
+      LIMIT: ${LIMIT:-100}
+      WINDOW_MS: ${WINDOW_MS:-60000}
+      DEGRADE_POLICY: ${DEGRADE_POLICY:-open}
