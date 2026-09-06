@@ -1,0 +1,44 @@
+{
+  "name": "rate-limiting-patterns",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fixed window, sliding log and token bucket behind one interface, each an atomic Redis Lua script, with a benchmark that measures burst accuracy and Redis cost — and a decided answer for what happens when Redis is down.",
+  "author": "Mohad Jillani <mohad.jillani@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mohadjillani/rate-limiting-patterns.git"
+  },
+  "homepage": "https://github.com/mohadjillani/rate-limiting-patterns#readme",
+  "bugs": "https://github.com/mohadjillani/rate-limiting-patterns/issues",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "demo": "tsx src/demo/server.ts",
+    "bench:accuracy": "tsx bench/accuracy.ts",
+    "bench:render": "tsx bench/render.ts",
+    "test": "vitest run",
+    "test:unit": "vitest run test/unit",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "express": "^5.2.0",
+    "ioredis": "^5.9.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.1",
+    "eslint": "^9.39.5",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^3.2.7"
+  }
+}
