@@ -22,6 +22,17 @@ export default tseslint.config(
     },
   },
   {
+    // k6 scripts run in k6's own runtime, not Node: `__ENV` and `__VU` are
+    // globals it injects, and the imports resolve inside k6 rather than from
+    // node_modules.
+    files: ['bench/k6/**/*.js'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: { __ENV: 'readonly', __VU: 'readonly', __ITER: 'readonly', console: 'readonly' },
+    },
+  },
+  {
     files: ['**/*.mjs', '**/*.js'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
