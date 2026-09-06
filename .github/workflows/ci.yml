@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  static:
+    name: lint, types and formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run format:check
+
+  unit:
+    name: unit tests (no Redis)
+    runs-on: ubuntu-latest
+    # No service container on purpose: the degradation logic must be testable
+    # without the dependency it exists to survive the loss of.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+
+  integration:
+    name: strategies against Redis
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:8-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      REDIS_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  bench:
+    name: benchmark runs and the report is current
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:8-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      REDIS_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run bench:accuracy
+      - run: npm run bench:render
+      # The boundary and memory findings are structural — a fixed window
+      # overshoots, a sliding log costs memory — so CI asserts the shape of the
+      # result rather than the numbers, which are machine-specific and would
+      # make this job a flake generator.
+      - name: The findings still hold
+        run: |
+          node -e '
+            const r = require("./bench/results/accuracy.json");
+            const by = Object.fromEntries(r.boundary.map(b => [b.strategy, b]));
+            const cost = Object.fromEntries(r.cost.map(c => [c.strategy, c]));
+            const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
+
+            if (by["fixed-window"].overshoot < 1.5) fail("fixed window no longer overshoots at a boundary");
+            if (by["sliding-log"].overshoot > 1.05) fail("sliding log overshot: " + by["sliding-log"].overshoot);
+            if (cost["sliding-log"].bytesPerClient < cost["fixed-window"].bytesPerClient * 5)
+              fail("sliding log memory is no longer dominant");
+            if (!process.exitCode) console.log("findings hold");
+          '
