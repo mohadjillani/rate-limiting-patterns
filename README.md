@@ -177,6 +177,14 @@ design property here, not a measured one.
 between two fixed windows is a genuinely good middle ground and is not
 implemented; the token bucket occupies similar ground with simpler reasoning.
 
+## Related
+
+[`node-service-blueprint`](https://github.com/mohadjillani/node-service-blueprint)
+is the service shape this middleware is meant to sit in front of.
+[`api-mock-server`](https://github.com/mohadjillani/api-mock-server) simulates
+a rate-limited dependency from the other side — 429s with `Retry-After`, for
+exercising a client's retry logic rather than a server's accounting.
+
 ## License
 
 MIT
