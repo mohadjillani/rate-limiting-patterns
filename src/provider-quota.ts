@@ -51,6 +51,7 @@ export class ProviderQuota {
     this.prefix = options.prefix ?? 'rl:pq';
     this.windowMs = options.windowMs ?? 60_000;
     defineScript(redis, 'provider_quota', 2);
+    defineScript(redis, 'provider_settle', 1);
   }
 
   private keys(key: string): [string, string] {
@@ -83,6 +84,26 @@ export class ProviderQuota {
       decision,
       reservation: decision.allowed ? { key, estimatedTokens } : null,
     };
+  }
+
+  /**
+   * Corrects a reservation against the tokens the call actually used.
+   *
+   * Call it on every path a reserved call can end on, including failure: a
+   * request that errors after the provider has already read the prompt has
+   * still spent those tokens, and one that never left the process has spent
+   * none. Skipping it on the error path is the leak that makes a limiter
+   * drift tighter than the quota it is modelling.
+   */
+  async settle(reservation: Reservation, actualTokens: number): Promise<Decision> {
+    const [, tokenKey] = this.keys(reservation.key);
+    const result = await runner(this.redis, 'provider_settle')(
+      tokenKey,
+      this.options.tokensPerMinute,
+      this.windowMs,
+      reservation.estimatedTokens - actualTokens,
+    );
+    return toDecision(result);
   }
 
   /** Current state, charging neither a request nor a token. */
