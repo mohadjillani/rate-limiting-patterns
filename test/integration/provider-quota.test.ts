@@ -1,6 +1,6 @@
 import { Redis } from 'ioredis';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { ProviderQuota } from '../../src/provider-quota.ts';
+import { ProviderQuota, type Reservation } from '../../src/provider-quota.ts';
 
 const redis = new Redis(process.env.REDIS_URL ?? 'redis://127.0.0.1:6379');
 
@@ -16,6 +16,17 @@ const build = (requestsPerMinute: number, tokensPerMinute: number): ProviderQuot
     tokensPerMinute,
     prefix: 'test:pq',
   });
+
+/** Narrows away the refusal case, which every caller here has ruled out. */
+const granted = async (
+  quota: ProviderQuota,
+  key: string,
+  estimatedTokens: number,
+): Promise<Reservation> => {
+  const { reservation } = await quota.reserve(key, estimatedTokens);
+  if (!reservation) throw new Error('expected the reservation to be granted');
+  return reservation;
+};
 
 describe('reserving against two quotas', () => {
   const key = `reserve-${String(Math.random()).slice(2)}`;
@@ -81,5 +92,79 @@ describe('reserving against two quotas', () => {
     const { decision } = await quota.reserve(key, 10);
 
     expect(decision.allowed).toBe(true);
+  });
+});
+
+describe('settling a reservation against actual usage', () => {
+  const key = `settle-${String(Math.random()).slice(2)}`;
+
+  beforeEach(async () => {
+    await build(10, 1000).reset(key);
+  });
+
+  // The token bucket refills while the test runs, so exact equality on
+  // `remaining` is a flake waiting for a slow runner. A few tokens of slack
+  // covers the refill without hiding a wrong correction, which is always off
+  // by hundreds here.
+  const expectAbout = (actual: number, expected: number): void => {
+    expect(actual).toBeGreaterThanOrEqual(expected);
+    expect(actual).toBeLessThan(expected + 20);
+  };
+
+  it('returns the difference when the completion came in under the estimate', async () => {
+    const quota = build(10, 1000);
+    const reservation = await granted(quota, key, 500);
+
+    const settled = await quota.settle(reservation, 100);
+
+    expectAbout(settled.remaining, 900);
+  });
+
+  it('takes the difference when the completion ran over the estimate', async () => {
+    const quota = build(10, 1000);
+    const reservation = await granted(quota, key, 100);
+
+    const settled = await quota.settle(reservation, 600);
+
+    expectAbout(settled.remaining, 400);
+  });
+
+  it('holds the estimate until the call is settled', async () => {
+    const quota = build(10, 1000);
+    const reservation = await granted(quota, key, 800);
+
+    // Concurrent callers see the estimate as spent, which is the point of
+    // reserving rather than charging afterwards.
+    expect((await quota.reserve(key, 300)).decision.allowed).toBe(false);
+
+    await quota.settle(reservation, 0);
+    expect((await quota.reserve(key, 300)).decision.allowed).toBe(true);
+  });
+
+  it('carries an overspend as debt that refuses the next call', async () => {
+    const quota = build(10, 1000);
+    const reservation = await granted(quota, key, 100);
+
+    // The provider has already been paid for these, so the bucket has to go
+    // negative rather than pretend the allowance is merely empty.
+    const settled = await quota.settle(reservation, 1500);
+
+    expect(settled.allowed).toBe(false);
+    expect(settled.remaining).toBe(0);
+    expect(settled.retryAfterMs).toBeGreaterThan(0);
+    expect((await quota.reserve(key, 1)).decision.allowed).toBe(false);
+  });
+
+  it('never refunds past the capacity, so a double settle cannot mint tokens', async () => {
+    const quota = build(10, 1000);
+    const reservation = await granted(quota, key, 200);
+
+    await quota.settle(reservation, 0);
+    const second = await quota.settle(reservation, 0);
+
+    // Settling twice is a retry bug, not a theory: the refund is capped at the
+    // capacity so the worst case is a quota that is briefly too generous
+    // rather than one that grows every time the path is re-run.
+    expect(second.remaining).toBe(1000);
   });
 });
