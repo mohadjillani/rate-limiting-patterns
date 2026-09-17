@@ -44,7 +44,7 @@ trickle.
 ```bash
 docker compose up -d redis     # or: redis-server
 npm install
-npm test                       # 48 tests, needs Redis
+npm test                       # 61 tests, needs Redis
 npm run bench:accuracy         # reproduces the table above
 ```
 
@@ -138,6 +138,57 @@ to stop abuse and irrelevant for one that keeps a reporting endpoint from being
 hammered. The benchmark says what each strategy does; it does not say which one
 you need.
 
+## Limiting against someone else's quota
+
+The three strategies above charge a cost that is known when the call is
+admitted. Calling a model provider breaks that in two ways: it enforces
+requests-per-minute and tokens-per-minute at once, and the cost of a call is
+not known until the completion has finished streaming.
+
+`ProviderQuota` admits in two phases — reserve an estimate, settle the truth.
+
+```ts
+import { Redis } from 'ioredis';
+import { ProviderQuota } from 'rate-limiting-patterns';
+
+const quota = new ProviderQuota(new Redis(), {
+  requestsPerMinute: 500,
+  tokensPerMinute: 200_000,
+});
+
+const { decision, reservation } = await quota.reserve(tenant, promptTokens + maxOutputTokens);
+if (!reservation) {
+  throw new TooManyRequests(decision.retryAfterMs);
+}
+
+try {
+  const response = await provider.complete(prompt);
+  await quota.settle(reservation, response.usage.total_tokens);
+} catch (error) {
+  // Settle on every path. A call that failed after the prompt was read still
+  // spent those tokens; one that never left the process spent none.
+  await quota.settle(reservation, tokensSpentBefore(error));
+  if (error.status === 429) await quota.backOff(tenant, retryAfterMs(error));
+  throw error;
+}
+```
+
+Why it is shaped this way:
+
+- **Both quotas commit or neither does.** Charging them as two limiters debits
+  a request and then has the token bucket refuse, spending a request on a call
+  that never happened.
+- **The estimate is held between reserve and settle**, so twenty concurrent
+  calls do not each see the allowance the other nineteen are about to spend.
+- **An overspend goes negative** rather than flooring at zero. Those tokens are
+  already paid for upstream; discarding them is how a local counter drifts
+  steadily more optimistic than the quota it models until the 429s start.
+- **The provider wins.** `backOff` adopts an upstream `Retry-After` as local
+  debt, because a shared quota makes the local model wrong without warning.
+
+[ADR 4](docs/decisions/0004-reserve-then-settle-for-provider-quotas.md) has the
+reasoning and what it deliberately does not model.
+
 ## Load scenarios
 
 `bench/k6/` holds three profiles against the demo server — steady (the control,
@@ -173,6 +224,12 @@ correctness for that dependency; this one does not.
 one key, so the strategies are cluster-safe by construction — but that is a
 design property here, not a measured one.
 
+**The provider quota is not benchmarked.** The three strategies have measured
+boundary and memory numbers; `ProviderQuota` has correctness tests and no
+benchmark, because the thing worth measuring — how close the local count stays
+to a provider's — cannot be measured without that provider's counter to compare
+against.
+
 **No sliding-window-counter strategy.** The approximation that interpolates
 between two fixed windows is a genuinely good middle ground and is not
 implemented; the token bucket occupies similar ground with simpler reasoning.
@@ -184,6 +241,10 @@ is the service shape this middleware is meant to sit in front of.
 [`api-mock-server`](https://github.com/mohadjillani/api-mock-server) simulates
 a rate-limited dependency from the other side — 429s with `Retry-After`, for
 exercising a client's retry logic rather than a server's accounting.
+
+[`llm-service-starter`](https://github.com/mohadjillani/llm-service-starter) is
+the service `ProviderQuota` was shaped for: it holds the retry policy, the cost
+ledger and the budget breaker that sit around the same provider call.
 
 ## License
 
