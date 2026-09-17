@@ -52,6 +52,7 @@ export class ProviderQuota {
     this.windowMs = options.windowMs ?? 60_000;
     defineScript(redis, 'provider_quota', 2);
     defineScript(redis, 'provider_settle', 1);
+    defineScript(redis, 'provider_backoff', 1);
   }
 
   private keys(key: string): [string, string] {
@@ -102,6 +103,25 @@ export class ProviderQuota {
       this.options.tokensPerMinute,
       this.windowMs,
       reservation.estimatedTokens - actualTokens,
+    );
+    return toDecision(result);
+  }
+
+  /**
+   * Records a 429 from the provider, holding the quota until its reset.
+   *
+   * Pass the `Retry-After` header the provider sent. Local accounting is a
+   * model of someone else's counter and the provider is the authority on when
+   * it disagrees — commonly because the quota is shared with other clients of
+   * the same key.
+   */
+  async backOff(key: string, retryAfterMs: number): Promise<Decision> {
+    const [requestKey] = this.keys(key);
+    const result = await runner(this.redis, 'provider_backoff')(
+      requestKey,
+      this.options.requestsPerMinute,
+      this.windowMs,
+      retryAfterMs,
     );
     return toDecision(result);
   }

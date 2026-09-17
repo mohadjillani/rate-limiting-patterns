@@ -168,3 +168,43 @@ describe('settling a reservation against actual usage', () => {
     expect(second.remaining).toBe(1000);
   });
 });
+
+describe('adopting an upstream 429', () => {
+  const key = `backoff-${String(Math.random()).slice(2)}`;
+
+  beforeEach(async () => {
+    await build(10, 1000).reset(key);
+  });
+
+  it('holds the quota for the duration the provider asked for', async () => {
+    const quota = build(10, 1000);
+    await quota.backOff(key, 5_000);
+
+    const { decision } = await quota.reserve(key, 1);
+
+    expect(decision.allowed).toBe(false);
+    // Derived from the debt rather than stored, so it is allowed to have lost
+    // the milliseconds the round trips took.
+    expect(decision.retryAfterMs).toBeGreaterThan(4_000);
+    expect(decision.retryAfterMs).toBeLessThanOrEqual(5_000);
+  });
+
+  it('holds the request quota even when the tokens asked for are trivial', async () => {
+    const quota = build(10, 1_000_000);
+    await quota.backOff(key, 2_000);
+
+    // The token quota here is effectively unlimited, so only the hold on the
+    // request bucket stands between a stream of tiny prompts and the provider
+    // that just refused them.
+    expect((await quota.reserve(key, 1)).decision.allowed).toBe(false);
+  });
+
+  it('lifts the hold once the period has passed', async () => {
+    const quota = build(10, 1000);
+    await quota.backOff(key, 150);
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect((await quota.reserve(key, 1)).decision.allowed).toBe(true);
+  });
+});
