@@ -3,6 +3,7 @@ export { LimitExceededError } from './limiter.ts';
 export { FixedWindowLimiter } from './strategies/fixed-window.ts';
 export { SlidingLogLimiter } from './strategies/sliding-log.ts';
 export { TokenBucketLimiter } from './strategies/token-bucket.ts';
+export { ProviderQuota, type ProviderQuotaOptions, type Reservation } from './provider-quota.ts';
 export { rateLimit, type RateLimitMiddlewareOptions } from './middleware/express.ts';
 export {
   withDegradation,
